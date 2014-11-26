@@ -34,4 +34,3 @@ default:
   }
   exit(0);
 }
-?>
