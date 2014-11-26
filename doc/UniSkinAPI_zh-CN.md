@@ -29,7 +29,6 @@ Endpoints:
 - 404: 发生了错误
 
 *皮肤连接应当返回符合`Steve`人物模型的皮肤(legacy=1)*
-利用Rewrite重写到get.php(注意legacy标志)
 get.php访问数据库，通过返回301到Steve皮肤所对应的hash链接
 若无，则301至skins.minecraft.net
 
@@ -46,7 +45,7 @@ Endpoints:
 
 唯一标识符应当与文件一一对应  
 我推荐使用文件的SHA-256(长度可接受)作为唯一标识符(Minecraft官网使用自己的Hash算法)  
-扩展名是可选的，通常是`.png`(服务器通过一次rewrite统一添加扩展名)
+扩展名是可选的，通常是`.png`(服务器统一添加扩展名)
 *这种格式是在硬盘中存储的真实格式*
 无需数据库干预
 
@@ -60,7 +59,7 @@ Endpoint:
 - 200: 返回玩家信息(UserProfile)
 - 404: 该玩家不存在
 - 400: 需要UUID校验
-利用1次rewrite重写至getuserpf.php?name={玩家名}
+
 
 ## 获得玩家信息，带UUID
 
@@ -73,7 +72,7 @@ Endpoint:
 - 200: 返回玩家信息(UserProfile)
 - 404: 该玩家不存在
 - 403: UUID校验失败(Forbidden)
-利用1次rewrite重写至getuserpf.php?name={玩家名}&uuid={UUID}
+
 以上数据均用SQL服务器存储，避免使用Flatfile
 
 ## UserProfile:
@@ -94,9 +93,9 @@ UserProfile代表了一个玩家的信息
       "player_name": "XiaoMing",
       "last_update": 1416300800,
       "uuid": "b6e152724b02462dbafcfe1573c8d6cc",
-      "model_preference": ["alex","default"],
+      "model_preference": ["slim","default"],
       "skins": {
-        "alex": "67cbc70720c4666e9a12384d041313c7bb9154630d7647eb1e8fba0c461275c6",
+        "slim": "67cbc70720c4666e9a12384d041313c7bb9154630d7647eb1e8fba0c461275c6",
         "default": "6d342582972c5465b5771033ccc19f847a340b76d6131129666299eb2d6ce66e"
       }
       "cape": "970a71c6a4fc81e83ae22c181703558d9346e0566390f06fb93d09fcc9783799"
@@ -105,7 +104,7 @@ UserProfile代表了一个玩家的信息
 带*的是必选的，一个支持UniSkinAPI的皮肤mod应具有较强的容错机制(合理fallback)。
 
 ## 错误回应:
-当某个请求出错时，针对皮肤直接请求服务器返回错误码404，针对UserProfile请求返回如下JSON
+当某个请求出错时，服务器返回错误码404,403,400并返回如下JSON
 
     {
       "errno": {整数，错误代号},
