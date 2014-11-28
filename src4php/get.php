@@ -1,11 +1,5 @@
 <?php 
 require 'config.inc.php';
-if (!$con)
-{
-Header("HTTP/1.1 403 Forbidden");
-die('Could not connect: ' . mysql_error());
-}
-mysql_select_db("dbname", $con);
 if ($_GET['legacy']=='1') {
   $result = mysql_query("SELECT * FROM users WHERE name='" . filename . "'");
   if ($result){$row = mysql_fetch_array($result);}
