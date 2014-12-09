@@ -4,6 +4,13 @@ import server_config
 import tornado.web
 from tornado.web import RequestHandler
 
+def ArgHelper (handler,arg,default=None):
+  try:
+    x=handler.get_argument(arg)
+  except tornado.web.MissingArgumentError:
+    x=default
+  return x
+
 class LegacySkinHandler(RequestHandler):
     def get(self,player_name):
         if not db.user_exists(player_name):
@@ -48,6 +55,9 @@ class UserProfileHandler(RequestHandler):
 
 class WebRegisterHandler(RequestHandler):
     def post(self):
+        if not cfg.allow_reg:
+            self.write('{"errno":4,"msg":"reg not allowed"}')
+            return
         name=self.get_argument("login")
         passwd=self.get_argument("passwd")
         if db.user_exists(name):
@@ -63,6 +73,18 @@ class WebRegisterHandler(RequestHandler):
             self.write('{"errno":3,"msg":"Internal Server Error"}')
             return
         self.write('{"errno":0,"msg":""}')
+    def delete(self):
+        token=self.get_argument("token")
+        if not sessionManager.valid(token):
+            self.write('{"errno":-1,"msg":"invalid token"}')
+        else:
+            pwd=ArgHelper(self,"pwd")
+            name=sessionManager.get_name(token)
+            if db.isValid(name,pwd):
+                db.rm_account(name)
+                self.write('{"errno":0,"msg":""}')
+            else:
+                self.write('{"errno":2,"msg":"password change verification fail"}')
 
 class WebLoginHandler(RequestHandler):
     def post(self):
@@ -74,27 +96,28 @@ class WebLoginHandler(RequestHandler):
             token=sessionManager.login(name)
             self.write('{"errno":0,"msg":"%s"}'%token)
 
+class WebLogoutHandler(RequestHandler):
+    def post(self):
+        token=self.get_argument("token")
+        success=sessionManager.logout(token)
+        if not success:
+            self.write('{"errno":1,"msg":"logout fail"}')
+        else:
+            self.write('{"errno":0,"msg":""}')
+
 class WebDataAccessHandler(RequestHandler):
     def post(self):
         token=self.get_argument("token")
         if not sessionManager.valid(token):
-            self.set_status(403)
             self.write('{"errno":-1,"msg":"invalid token"}')
         else:
             name=sessionManager.get_name(token)
             self.write(db.user_json_web(name))
-def ArgHelper (handler,arg,default=None):
-    try:
-        x=handler.get_argument(arg)
-    except tornado.web.MissingArgumentError:
-        x=default
-    return x
 
 class WebProfileUpdateHandler(RequestHandler):
     def post(self):
         token=self.get_argument("token")
         if not sessionManager.valid(token):
-            self.set_status(403)
             self.write('{"errno":-1,"msg":"invalid token"}')
         else:
             name=sessionManager.get_name(token)
@@ -108,7 +131,10 @@ class WebProfileUpdateHandler(RequestHandler):
                     self.write('{"errno":1,"msg":"change password need current password"}')
                     return
                 if db.isValid(name,cur):
-                    db.change_pwd(name,pwd)
+                    if(len(new_pass)<4):
+                        self.write('{"errno":3,"msg":"New pwd too short"}')
+                        return
+                    db.change_pwd(name,new_pass)
                     updated_item.append("password")
                 else:
                     self.write('{"errno":2,"msg":"password change verification fail"}')
@@ -125,11 +151,11 @@ class WebSkinModificationHandle(RequestHandler):
     def delete(self):
         token=self.get_argument("token")
         if not sessionManager.valid(token):
-            self.set_status(403)
             self.write('{"errno":-1,"msg":"invalid token"}')
         else:
             name=sessionManager.get_name(token)
-            db.remove_skin(name,self.get_argument("type"))
+            h=db.remove_skin(name,self.get_argument("type"))
+            texture_cache.minus1(h)
     def post(self):
         import hashlib
         token=self.get_argument("token")
@@ -146,6 +172,7 @@ class WebSkinModificationHandle(RequestHandler):
             m=hashlib.sha256()
             m.update(file_bin)
             hex_name=m.hexdigest()
+            texture_cache.plus1(hex_name)
             open(cfg.texture_path+hex_name,'wb').write(file_bin)
             db.update_model(name,self.get_argument("type"),hex_name)
             self.write('{"errno":0,"msg":"success"}')
@@ -154,8 +181,7 @@ def run_server(cfg):
     global sessionManager
     handlers=[(r"/MinecraftSkins/(.*).png",  LegacySkinHandler),
               (r"/MinecraftCloaks/(.*).png", LegacyCapeHandler),
-              (r"/textures/(.*).png",        TexturesHandler),
-              (r"/textures/(.*)",            TexturesHandler),
+              (r"/textures/(.*)",            TexturesHandler,{"path":"textures"}),
               (r"/(.*).json",                UserProfileHandler),
 
               (r"/",               tornado.web.RedirectHandler,{"url": "/index.html"}),
@@ -165,6 +191,7 @@ def run_server(cfg):
 
               (r"/reg",   WebRegisterHandler),
               (r"/login", WebLoginHandler),
+              (r"/logout", WebLogoutHandler),
               (r"/update",WebProfileUpdateHandler),
               (r"/data",  WebDataAccessHandler),
               (r"/upload",WebSkinModificationHandle),
@@ -182,10 +209,11 @@ def run_server(cfg):
         print("Now server quit.")
 
 if __name__=="__main__":
-    global cfg,db
+    global cfg,db,texture_cache
     cfg=server_config.getConfigure()
     if cfg==None:
         print("Error Occured, check your config please.")
     else:
         db=server_config.DatabaseProvider(cfg.database_path)
+        texture_cache=server_config.TextureManager(db.get_cursor(),cfg.texture_path)
         run_server(cfg)

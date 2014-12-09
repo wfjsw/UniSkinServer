@@ -1,12 +1,11 @@
 # -*- coding : utf-8 -*-
 
 DEFAULT_CONFIG='''{
-    "bind-ip": "0.0.0.0",
     "port": "10086",
-    "admin-phrase": "badabada",
     "uuid-bind": false,
     "allow-reg": true,
-    "allow-cape": true
+    "texture-folder": "textures/",
+    "database": "data.db"
 }
 '''
 import uuid,sqlite3,os,sys,json,time
@@ -18,15 +17,66 @@ def getUUID():
 class SessionManager():
     def __init__(self):
         self.__sessions=dict()
+        self.__lastcheck=time.time();
     def valid(self,token):
-        return token in self.__sessions and self.__sessions[token]['time']<time.time()
+        if token in self.__sessions:
+            if self.__sessions[token]['time']>time.time():
+                return True
+            else:
+                del(self.__sessions[token])
+                return False
+        else:
+            return False
     def get_name(self,token):
         return self.__sessions[token]['name'] if self.valid(token) else None
     def login(self,name):
+        if self.__lastcheck + 3600 < time.time():
+            self.__lastcheck=time.time()
+            for t in [x for x in self.__sessions if self.__sessions[x]['time']<time.time()]:
+                del(self.__sessions[t])
         uid=getUUID()
-        i={'name':name,'time':time.time()}
+        i={'name':name,'time':time.time()+600}
         self.__sessions[uid]=i
         return uid
+    def logout(self,token):
+        if token in self.__sessions:
+            del(self.__sessions[token])
+            return True
+        else:
+            return False
+
+class TextureManager():
+    __textures=dict()
+    __path='./textures/'
+    def __init__(self,cursor,folder_path):
+        import os
+        self.__path=folder_path
+        SQL='SELECT HASH_steve,HASH_alex,HASH_cape FROM users'
+        res=cursor.execute(SQL)
+        row=res.fetchone()
+        while row!=None:
+            self.plus1(row[0])
+            self.plus1(row[1])
+            self.plus1(row[2])
+            row=res.fetchone()
+        for f in os.listdir(self.__path):
+            if not f in self.__textures:
+                os.remove(self.__path+f)
+    def plus1(self,h):
+        if h==None: return
+        if h in self.__textures:
+            self.__textures[h]+=1
+        else:
+            self.__textures[h]=1
+    def minus1(self,h):
+        import os
+        if h==None: return
+        if not h in self.__textures: return
+        self.__textures[h]-=1
+        if self.__textures[h]==0:
+            del(self.__textures[h])
+            os.remove(self.__path+h)
+
 
 class UserInfoFactory():
     def toPublicProfile(record):
@@ -107,20 +157,24 @@ class DatabaseProvider():
     def isValid(self,name,pwd):
         SQL="SELECT * FROM users WHERE name=? AND pwd=?"
         res=self.__cursor.execute(SQL,(name,UserInfoFactory.pwd_hash(name,pwd),))
-        return res!=None;
+        return res.fetchone()!=None;
     def user_json_web(self,name):
         rec=self.__getRecordByName(name)
         return UserInfoFactory.toWebProfile(rec)
     def remove_skin(self,name,skin_type):
         SQL=r'UPDATE users SET %s=NULL, last_update=? WHERE name=?'
+        SQL2=r'SELECT %s FROM users WHERE name=?'
         column=""
         if skin_type=="slim": column="HASH_alex"
         if skin_type=="default": column="HASH_steve"
         if skin_type=="cape": column="HASH_cape"
         if column=="":return
         SQL=SQL%column
+        SQL2=SQL2%column
+        h=self.__cursor.execute(SQL2,(name,)).fetchone()[0]
         self.__cursor.execute(SQL,(int(time.time()),name))
         self.__conn.commit()
+        return h
     def update_model(self,name,skin_type,hex_name):
         SQL=r'UPDATE users SET %s=?, last_update=? WHERE name=?'
         column=""
@@ -143,7 +197,12 @@ class DatabaseProvider():
         SQL="UPDATE users SET preference=?, last_update=? WHERE name=?"
         self.__cursor.execute(SQL,(p,int(time.time()),name,))
         self.__conn.commit()
-
+    def rm_account(self,name):
+        SQL="DELETE FROM users WHERE name=?"
+        self.__cursor.execute(SQL,(name,))
+        self.__conn.commit()
+    def get_cursor(self):
+        return self.__cursor;
 
 
 class server_config:
@@ -151,14 +210,9 @@ class server_config:
         import json
         f=open(file_path)
         config=json.loads(f.read())
-        self.ip=config["bind-ip"]
-        if self.ip=="":
-            self.ip="0.0.0.0"
         self.port=int(config["port"])
-        self.admin_phrase=config["admin-phrase"]
         self.uuid_bind=config["uuid-bind"]
         self.allow_reg=config["allow-reg"]
-        self.allow_cape=config["allow-cape"]
         self.texture_path=config["texture-folder"]
         self.database_path=config["database"]
 
@@ -171,6 +225,8 @@ def getConfigure(file_path="server_config.json"):
             f.write(DEFAULT_CONFIG)
             f.close()
         cfg=server_config(file_path)
+        if not os.path.exists(cfg.texture_path):
+            os.mkdir(cfg.texture_path)
     except Exception as e:
         print(e)
         return None

@@ -65,6 +65,8 @@ Endpoint:
 - 404: 该玩家不存在
 - 400: UUID校验失败
 
+**注意：**该形式连接存在意义不明，考虑移除
+
 ## UserProfile:
 UserProfile代表了一个玩家的信息
 
